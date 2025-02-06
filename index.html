@@ -3,157 +3,108 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>قارئ الباركود</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <title>قارئ الباركود الاحترافي</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    <style>
-        body {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            background: #f0f0f0;
-            min-height: 100vh;
-            font-family: Arial, sans-serif;
-        }
-        #videoContainer {
-            position: relative;
-            width: 100%;
-            max-width: 640px;
-            margin: 20px auto;
-            background: #000;
-        }
-        #video {
-            width: 100%;
-            height: auto;
-        }
-        #overlay {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 300px;
-            height: 150px;
-            border: 2px solid #00ff00;
-            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
-        }
-        .controls {
-            margin-top: 10px;
-        }
-    </style>
-</head>
-<body>
-    <div id="videoContainer">
-        <video id="video" playsinline></video>
-        <div id="overlay"></div>
-    </div>
-    <div class="controls">
-        <button id="startScan" class="btn btn-primary">بدء القراءة</button>
-        <button id="switchCamera" class="btn btn-secondary">تبديل الكاميرا</button>
-        <button id="toggleFlash" class="btn btn-warning">تشغيل الفلاش</button>
-    </div>
-    <div id="result" class="alert alert-info mt-3">لم يتم التقاط أي باركود بعد</div>
-    
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
-    <script>
-        let video = document.getElementById('video');
-        let startScan = document.getElementById('startScan');
-        let switchCamera = document.getElementById('switchCamera');
-        let toggleFlash = document.getElementById('toggleFlash');
-        let result = document.getElementById('result');
+    <script type="module">
+        import { BrowserMultiFormatReader } from 'https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/esm/index.js';
 
+        let selectedDeviceId = localStorage.getItem('camera') || null;
+        let codeReader = new BrowserMultiFormatReader();
+        let videoElement = document.getElementById("video");
+        let resultElement = document.getElementById("result");
+        let startButton = document.getElementById("startScan");
+        let switchCameraButton = document.getElementById("switchCamera");
+        let flashButton = document.getElementById("toggleFlash");
+        let stream = null;
         let scanning = false;
-        let currentStream = null;
-        let currentCamera = localStorage.getItem('camera') || 'environment';
         let isFlashOn = false;
-        
-        async function initCamera() {
-            if (currentStream) {
-                currentStream.getTracks().forEach(track => track.stop());
-            }
-            
+
+        async function startCamera() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: currentCamera, width: 1280, height: 720 }
-                });
-                video.srcObject = stream;
-                currentStream = stream;
-                video.onloadedmetadata = () => video.play();
-            } catch (err) {
-                Swal.fire('خطأ', 'فشل في الوصول إلى الكاميرا، تأكد من السماح بالوصول', 'error');
+                let devices = await codeReader.listVideoInputDevices();
+                if (devices.length > 0) {
+                    if (!selectedDeviceId) {
+                        selectedDeviceId = devices[0].deviceId;
+                    }
+                    localStorage.setItem('camera', selectedDeviceId);
+                    startScanning(selectedDeviceId);
+                } else {
+                    Swal.fire('خطأ', 'لا يوجد كاميرات متاحة', 'error');
+                }
+            } catch (error) {
+                Swal.fire('خطأ', 'تعذر الوصول إلى الكاميرا', 'error');
             }
         }
-        
-        async function toggleFlashlight() {
-            if (!currentStream) return;
-            const track = currentStream.getVideoTracks()[0];
-            const capabilities = track.getCapabilities();
-            
-            if ('torch' in capabilities) {
-                isFlashOn = !isFlashOn;
-                await track.applyConstraints({ advanced: [{ torch: isFlashOn }] });
-                toggleFlash.textContent = isFlashOn ? 'إيقاف الفلاش' : 'تشغيل الفلاش';
-            } else {
-                Swal.fire('غير مدعوم', 'الفلاش غير مدعوم في هذه الكاميرا', 'info');
-            }
-        }
-        
-        function startScanning() {
+
+        async function startScanning(deviceId) {
+            if (scanning) return;
             scanning = true;
-            scanQRCode();
+            resultElement.textContent = "جارِ المسح...";
+
+            codeReader.decodeFromVideoDevice(deviceId, videoElement, (result, err) => {
+                if (result) {
+                    stopScanning();
+                    resultElement.textContent = result.text;
+                    Swal.fire({ title: "تم العثور على باركود!", text: result.text, icon: "success" });
+                }
+            });
         }
 
         function stopScanning() {
             scanning = false;
-            if (currentStream) {
-                currentStream.getTracks().forEach(track => track.stop());
+            codeReader.reset();
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
             }
         }
 
-        function scanQRCode() {
-            if (!scanning) return;
-
-            const canvas = document.createElement('canvas');
-            const context = canvas.getContext('2d');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const imageData = context.getImageData(
-                canvas.width / 2 - 150,
-                canvas.height / 2 - 75,
-                300,
-                150
-            );
-            
-            const code = jsQR(imageData.data, 300, 150);
-            if (code) {
-                result.textContent = `تم العثور على: ${code.data}`;
-                Swal.fire('تم التقاط الباركود', code.data, 'success');
+        async function switchCamera() {
+            let devices = await codeReader.listVideoInputDevices();
+            if (devices.length > 1) {
+                let index = devices.findIndex(d => d.deviceId === selectedDeviceId);
+                selectedDeviceId = devices[(index + 1) % devices.length].deviceId;
+                localStorage.setItem('camera', selectedDeviceId);
                 stopScanning();
+                startScanning(selectedDeviceId);
+            } else {
+                Swal.fire('لا يوجد سوى كاميرا واحدة', '', 'info');
+            }
+        }
+
+        async function toggleFlash() {
+            if (!videoElement.srcObject) return;
+            let track = videoElement.srcObject.getVideoTracks()[0];
+            let capabilities = track.getCapabilities();
+            if (!capabilities.torch) {
+                Swal.fire('الفلاش غير مدعوم في هذا الجهاز', '', 'error');
                 return;
             }
-            requestAnimationFrame(scanQRCode);
+            isFlashOn = !isFlashOn;
+            await track.applyConstraints({ advanced: [{ torch: isFlashOn }] });
         }
 
-        startScan.onclick = () => {
-            if (!scanning) {
-                startScanning();
-                startScan.textContent = 'إيقاف القراءة';
-            } else {
-                stopScanning();
-                startScan.textContent = 'بدء القراءة';
-            }
-        };
-
-        switchCamera.onclick = async () => {
-            currentCamera = currentCamera === 'environment' ? 'user' : 'environment';
-            localStorage.setItem('camera', currentCamera);
-            await initCamera();
-        };
-
-        toggleFlash.onclick = toggleFlashlight;
-        
-        initCamera();
+        startButton.onclick = startCamera;
+        switchCameraButton.onclick = switchCamera;
+        flashButton.onclick = toggleFlash;
     </script>
+    <style>
+        body { text-align: center; background: #f8f9fa; padding: 20px; }
+        #videoContainer { position: relative; width: 100%; max-width: 640px; margin: auto; }
+        video { width: 100%; border: 2px solid #28a745; }
+        #overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; height: 100px; border: 2px dashed #ff0000; }
+        .btn { margin: 5px; }
+    </style>
+</head>
+<body>
+    <h2>قارئ الباركود الاحترافي</h2>
+    <div id="videoContainer">
+        <video id="video" playsinline autoplay></video>
+        <div id="overlay"></div>
+    </div>
+    <p id="result">لم يتم المسح بعد</p>
+    <button id="startScan" class="btn btn-primary">بدء المسح</button>
+    <button id="switchCamera" class="btn btn-secondary">تبديل الكاميرا</button>
+    <button id="toggleFlash" class="btn btn-warning">تشغيل الفلاش</button>
 </body>
 </html>
