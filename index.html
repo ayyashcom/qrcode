@@ -73,7 +73,7 @@
             startCamera();
         });
         
-        toggleFlashButton.addEventListener('click', async () => {
+        toggleFlashButton.addEventListener('click', () => {
             flashEnabled = !flashEnabled;
             sessionStorage.setItem('flash', flashEnabled);
             startCamera();
@@ -83,7 +83,6 @@
             if (currentStream) {
                 currentStream.getTracks().forEach(track => track.stop());
             }
-            codeReader.reset();
         }
     </script>
 </body>
