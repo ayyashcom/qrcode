@@ -21,6 +21,7 @@
             margin: 20px auto;
             background: #000;
             position: relative;
+            display: none;
         }
 
         #video {
@@ -50,7 +51,7 @@
             border-radius: 5px;
         }
 
-        #status {
+        #status, #result {
             margin: 10px;
             padding: 10px;
             text-align: center;
@@ -58,92 +59,76 @@
     </style>
 </head>
 <body>
+    <button id="openCamera" class="button">تشغيل الكاميرا</button>
     <div id="videoContainer">
         <video id="video" playsinline autoplay></video>
         <div id="overlay"></div>
     </div>
-    <div id="status">جارِ التجهيز...</div>
-    <button id="startButton" class="button">بدء القراءة</button>
+    <div id="status">اضغط على زر تشغيل الكاميرا للبدء</div>
+    <div id="result"></div>
     <button id="switchCamera" class="button">تبديل الكاميرا</button>
-
+    <button id="toggleFlash" class="button">تشغيل الفلاش</button>
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
     <script>
         let video = document.getElementById('video');
-        let startButton = document.getElementById('startButton');
-        let switchButton = document.getElementById('switchCamera');
+        let openCameraButton = document.getElementById('openCamera');
+        let switchCameraButton = document.getElementById('switchCamera');
+        let toggleFlashButton = document.getElementById('toggleFlash');
         let status = document.getElementById('status');
-        
+        let result = document.getElementById('result');
+        let videoContainer = document.getElementById('videoContainer');
+
         let currentStream = null;
         let scanning = false;
-        let currentCamera = 'environment';
+        let currentCamera = localStorage.getItem('camera') || 'environment';
+        let flashEnabled = false;
 
-        startButton.disabled = true;
-        switchButton.disabled = true;
+        openCameraButton.onclick = async () => {
+            await initCamera();
+        };
 
-        // التحقق من دعم getUserMedia
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            status.textContent = 'الكاميرا غير مدعومة في هذا المتصفح';
-        } else {
-            initCamera();
-        }
+        switchCameraButton.onclick = async () => {
+            currentCamera = currentCamera === 'environment' ? 'user' : 'environment';
+            localStorage.setItem('camera', currentCamera);
+            await initCamera();
+        };
+
+        toggleFlashButton.onclick = async () => {
+            if (currentStream) {
+                let track = currentStream.getVideoTracks()[0];
+                let capabilities = track.getCapabilities();
+                if (capabilities.torch) {
+                    flashEnabled = !flashEnabled;
+                    track.applyConstraints({ advanced: [{ torch: flashEnabled }] });
+                    toggleFlashButton.textContent = flashEnabled ? 'إيقاف الفلاش' : 'تشغيل الفلاش';
+                }
+            }
+        };
 
         async function initCamera() {
             try {
+                if (currentStream) {
+                    currentStream.getTracks().forEach(track => track.stop());
+                }
+                
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: currentCamera }
                 });
                 
-                startButton.disabled = false;
-                
-                // التحقق من وجود كاميرات متعددة
-                const devices = await navigator.mediaDevices.enumerateDevices();
-                const cameras = devices.filter(device => device.kind === 'videoinput');
-                switchButton.disabled = cameras.length <= 1;
-
-                handleStream(stream);
-                status.textContent = 'الكاميرا جاهزة';
+                currentStream = stream;
+                video.srcObject = stream;
+                videoContainer.style.display = 'block';
+                status.textContent = 'يتم البحث عن الباركود...';
+                startScanning();
             } catch (err) {
-                console.error('خطأ في الكاميرا:', err);
                 status.textContent = 'فشل في الوصول إلى الكاميرا. تأكد من السماح بالوصول.';
             }
         }
 
-        function handleStream(stream) {
-            if (currentStream) {
-                currentStream.getTracks().forEach(track => track.stop());
-            }
-            
-            currentStream = stream;
-            video.srcObject = stream;
-            
-            // التأكد من تحميل الفيديو
-            video.onloadedmetadata = () => {
-                video.play();
-            };
-        }
-
-        startButton.onclick = () => {
-            if (!scanning) {
-                startScanning();
-                startButton.textContent = 'إيقاف القراءة';
-            } else {
-                stopScanning();
-                startButton.textContent = 'بدء القراءة';
-            }
-        };
-
-        switchButton.onclick = async () => {
-            currentCamera = currentCamera === 'environment' ? 'user' : 'environment';
-            await initCamera();
-        };
-
         function startScanning() {
             scanning = true;
             scanQRCode();
-        }
-
-        function stopScanning() {
-            scanning = false;
         }
 
         function scanQRCode() {
@@ -151,18 +136,17 @@
 
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d');
-            
+
             if (video.videoWidth > 0) {
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
-                
+
                 context.drawImage(video, 0, 0, canvas.width, canvas.height);
                 const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
                 
                 try {
                     const code = jsQR(imageData.data, imageData.width, imageData.height);
                     if (code) {
-                        console.log('تم العثور على باركود:', code.data);
                         handleCode(code.data);
                         return;
                     }
@@ -170,28 +154,22 @@
                     console.error('خطأ في قراءة الباركود:', err);
                 }
             }
-            
             requestAnimationFrame(scanQRCode);
         }
 
         function handleCode(data) {
-            stopScanning();
-            status.textContent = `تم العثور على: ${data}`;
-            startButton.textContent = 'بدء القراءة';
-            
-            if (confirm(`تم العثور على: ${data}\nهل تريد بدء مسح جديد؟`)) {
-                startScanning();
-            }
+            scanning = false;
+            status.textContent = 'تم العثور على باركود!';
+            result.textContent = `الكود: ${data}`;
+            stopCamera();
         }
 
-        // التعامل مع تغيير حجم النافذة
-        window.onresize = () => {
-            if (video.videoWidth > 0) {
-                const aspectRatio = video.videoWidth / video.videoHeight;
-                const containerWidth = video.offsetWidth;
-                video.style.height = (containerWidth / aspectRatio) + 'px';
+        function stopCamera() {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
             }
-        };
+            videoContainer.style.display = 'none';
+        }
     </script>
 </body>
 </html>
