@@ -3,87 +3,219 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>قارئ الباركود</title>
+    <title>قارئ باركود متقدم</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="https://cdn.jsdelivr.net/npm/@zxing/library@latest"></script>
     <style>
-        body { text-align: center; background: #f8f9fa; padding: 20px; }
-        #videoContainer { position: relative; max-width: 640px; margin: auto; }
-        #video { width: 100%; border-radius: 10px; }
-        #overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-                   width: 250px; height: 100px; border: 3px solid #00ff00; }
-        #barcodeResult { margin-top: 15px; font-size: 1.2rem; font-weight: bold; }
+        :root {
+            --scan-color: #00ff00;
+            --overlay-bg: rgba(0, 0, 0, 0.6);
+        }
+
+        body {
+            background: #f8f9fa;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        #videoContainer {
+            position: relative;
+            max-width: 800px;
+            margin: 20px auto;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+        }
+
+        #video {
+            width: 100%;
+            height: auto;
+            object-fit: cover;
+        }
+
+        .scan-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 70%;
+            height: 30%;
+            border: 3px solid var(--scan-color);
+            box-shadow: 0 0 0 100vmax var(--overlay-bg);
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.8; }
+            50% { opacity: 0.4; }
+            100% { opacity: 0.8; }
+        }
+
+        .controls {
+            margin-top: 20px;
+            gap: 10px;
+        }
     </style>
 </head>
-<body>
-    <h2>قارئ الباركود</h2>
+<body class="d-flex flex-column align-items-center">
+    <h1 class="text-primary mb-4">قارئ الباركود الذكي</h1>
+    
     <div id="videoContainer">
         <video id="video" autoplay playsinline></video>
-        <div id="overlay"></div>
+        <div class="scan-overlay"></div>
     </div>
-    <div id="barcodeResult" class="alert alert-info mt-3">لم يتم التقاط أي باركود بعد</div>
-    <button id="startButton" class="btn btn-primary">بدء المسح</button>
-    <button id="switchCamera" class="btn btn-secondary">تبديل الكاميرا</button>
-    <button id="toggleFlash" class="btn btn-warning">تشغيل الفلاش</button>
+
+    <div id="barcodeResult" class="alert alert-info mt-3 w-100" style="max-width: 800px">جاري تهيئة النظام...</div>
+    
+    <div class="controls d-flex flex-wrap justify-content-center">
+        <button id="startButton" class="btn btn-primary btn-lg mx-2">بدء المسح</button>
+        <button id="switchCamera" class="btn btn-secondary btn-lg mx-2">تبديل الكاميرا</button>
+        <button id="toggleFlash" class="btn btn-warning btn-lg mx-2">الفلاش</button>
+    </div>
 
     <script>
-        let video = document.getElementById('video');
-        let barcodeResult = document.getElementById('barcodeResult');
-        let startButton = document.getElementById('startButton');
-        let switchCameraButton = document.getElementById('switchCamera');
-        let toggleFlashButton = document.getElementById('toggleFlash');
-        let currentCamera = sessionStorage.getItem('camera') || 'environment';
-        let flashEnabled = sessionStorage.getItem('flash') === 'true';
-        let codeReader = new ZXing.BrowserMultiFormatReader();
+        const video = document.getElementById('video');
+        const codeReader = new ZXing.BrowserMultiFormatReader();
         let currentStream = null;
         
-        async function startCamera() {
+        // إعدادات المستخدم
+        let currentCamera = localStorage.getItem('camera') || 'environment';
+        let flashEnabled = localStorage.getItem('flash') === 'true';
+        let isScanning = false;
+
+        // عناصر التحكم
+        const startButton = document.getElementById('startButton');
+        const switchCameraButton = document.getElementById('switchCamera');
+        const toggleFlashButton = document.getElementById('toggleFlash');
+        const resultDiv = document.getElementById('barcodeResult');
+
+        // تهيئة أولية
+        initCameraCheck();
+
+        async function initCameraCheck() {
             try {
-                let constraints = { video: { facingMode: currentCamera } };
-                if (flashEnabled) constraints.video.torch = true;
-                
-                const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                if (currentStream) {
-                    currentStream.getTracks().forEach(track => track.stop());
-                }
-                
-                currentStream = stream;
-                video.srcObject = stream;
-                barcodeResult.textContent = 'الكاميرا جاهزة. قم بتوجيه الباركود إلى المستطيل';
+                await checkCameraPermissions();
+                updateUI(true);
             } catch (error) {
-                Swal.fire('خطأ', 'لا يمكن الوصول إلى الكاميرا. تأكد من منح الأذونات.', 'error');
+                handleCameraError(error);
             }
         }
-        
-        startButton.addEventListener('click', async () => {
-            startCamera();
-            codeReader.decodeFromVideoDevice(null, video, (result, err) => {
-                if (result) {
-                    barcodeResult.textContent = `تم التقاط الباركود: ${result.text}`;
-                    stopCamera();
-                    Swal.fire('تم الالتقاط!', `تم العثور على: ${result.text}`, 'success');
-                }
+
+        async function checkCameraPermissions() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                throw new Error('المتصفح لا يدعم الوصول إلى الكاميرا');
+            }
+            
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const hasCamera = devices.some(device => device.kind === 'videoinput');
+            
+            if (!hasCamera) {
+                throw new Error('لم يتم العثور على كاميرا');
+            }
+        }
+
+        async function startScanning() {
+            try {
+                resultDiv.textContent = 'جارٍ البحث عن باركود...';
+                
+                const constraints = {
+                    video: { 
+                        facingMode: currentCamera,
+                        torch: flashEnabled
+                    }
+                };
+
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                handleStream(stream);
+                
+                codeReader.decodeFromVideoDevice(null, video, (result, err) => {
+                    if (result) {
+                        handleSuccess(result.text);
+                    }
+                    if (err && !(err instanceof ZXing.NotFoundException)) {
+                        console.error('خطأ في القراءة:', err);
+                    }
+                });
+                
+                isScanning = true;
+                updateUI();
+            } catch (error) {
+                handleCameraError(error);
+            }
+        }
+
+        function handleStream(stream) {
+            if (currentStream) {
+                stopCamera();
+            }
+            currentStream = stream;
+            video.srcObject = stream;
+        }
+
+        function handleSuccess(barcodeData) {
+            resultDiv.textContent = `تم العثور على: ${barcodeData}`;
+            Swal.fire({
+                title: 'تم المسح بنجاح!',
+                html: `<div class="text-break p-3 bg-light rounded">${barcodeData}</div>`,
+                icon: 'success',
+                confirmButtonText: 'موافق'
             });
-        });
-        
-        switchCameraButton.addEventListener('click', () => {
-            currentCamera = currentCamera === 'environment' ? 'user' : 'environment';
-            sessionStorage.setItem('camera', currentCamera);
-            startCamera();
-        });
-        
-        toggleFlashButton.addEventListener('click', () => {
-            flashEnabled = !flashEnabled;
-            sessionStorage.setItem('flash', flashEnabled);
-            startCamera();
-        });
-        
+            stopCamera();
+        }
+
         function stopCamera() {
             if (currentStream) {
                 currentStream.getTracks().forEach(track => track.stop());
+                currentStream = null;
             }
+            codeReader.reset();
+            isScanning = false;
+            updateUI();
         }
+
+        function handleCameraError(error) {
+            console.error('خطأ الكاميرا:', error);
+            resultDiv.textContent = 'خطأ في الوصول إلى الكاميرا';
+            Swal.fire({
+                title: 'خطأ!',
+                text: 'تعذر الوصول إلى الكاميرا. يرجى التحقق من الإذن.',
+                icon: 'error',
+                confirmButtonText: 'حسنًا'
+            });
+        }
+
+        function updateUI(isInitial = false) {
+            startButton.textContent = isScanning ? 'إيقاف المسح' : 'بدء المسح';
+            toggleFlashButton.textContent = flashEnabled ? 'إطفاء الفلاش' : 'تشغيل الفلاش';
+            switchCameraButton.disabled = !isInitial && !isScanning;
+        }
+
+        // Event Listeners
+        startButton.addEventListener('click', () => {
+            isScanning ? stopCamera() : startScanning();
+        });
+
+        switchCameraButton.addEventListener('click', () => {
+            currentCamera = currentCamera === 'environment' ? 'user' : 'environment';
+            localStorage.setItem('camera', currentCamera);
+            startScanning();
+        });
+
+        toggleFlashButton.addEventListener('click', () => {
+            flashEnabled = !flashEnabled;
+            localStorage.setItem('flash', flashEnabled);
+            if (currentStream) {
+                const track = currentStream.getVideoTracks()[0];
+                track.applyConstraints({ advanced: [{ torch: flashEnabled }] });
+            }
+            updateUI();
+        });
+
+        // إدارة إغلاق الصفحة
+        window.addEventListener('beforeunload', () => {
+            stopCamera();
+        });
     </script>
 </body>
 </html>
