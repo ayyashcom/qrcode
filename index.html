@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>قارئ الباركود</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: #f0f0f0;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+        }
+
+        #videoContainer {
+            width: 100%;
+            max-width: 640px;
+            margin: 20px auto;
+            background: #000;
+            position: relative;
+        }
+
+        #video {
+            width: 100%;
+            height: auto;
+        }
+
+        #overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 200px;
+            height: 200px;
+            border: 2px solid #00ff00;
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+        }
+
+        .button {
+            margin: 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+
+        #status {
+            margin: 10px;
+            padding: 10px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="videoContainer">
+        <video id="video" playsinline autoplay></video>
+        <div id="overlay"></div>
+    </div>
+    <div id="status">جارِ التجهيز...</div>
+    <button id="startButton" class="button">بدء القراءة</button>
+    <button id="switchCamera" class="button">تبديل الكاميرا</button>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+    <script>
+        let video = document.getElementById('video');
+        let startButton = document.getElementById('startButton');
+        let switchButton = document.getElementById('switchCamera');
+        let status = document.getElementById('status');
+        
+        let currentStream = null;
+        let scanning = false;
+        let currentCamera = 'environment';
+
+        startButton.disabled = true;
+        switchButton.disabled = true;
+
+        // التحقق من دعم getUserMedia
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            status.textContent = 'الكاميرا غير مدعومة في هذا المتصفح';
+        } else {
+            initCamera();
+        }
+
+        async function initCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: currentCamera }
+                });
+                
+                startButton.disabled = false;
+                
+                // التحقق من وجود كاميرات متعددة
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const cameras = devices.filter(device => device.kind === 'videoinput');
+                switchButton.disabled = cameras.length <= 1;
+
+                handleStream(stream);
+                status.textContent = 'الكاميرا جاهزة';
+            } catch (err) {
+                console.error('خطأ في الكاميرا:', err);
+                status.textContent = 'فشل في الوصول إلى الكاميرا. تأكد من السماح بالوصول.';
+            }
+        }
+
+        function handleStream(stream) {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+            }
+            
+            currentStream = stream;
+            video.srcObject = stream;
+            
+            // التأكد من تحميل الفيديو
+            video.onloadedmetadata = () => {
+                video.play();
+            };
+        }
+
+        startButton.onclick = () => {
+            if (!scanning) {
+                startScanning();
+                startButton.textContent = 'إيقاف القراءة';
+            } else {
+                stopScanning();
+                startButton.textContent = 'بدء القراءة';
+            }
+        };
+
+        switchButton.onclick = async () => {
+            currentCamera = currentCamera === 'environment' ? 'user' : 'environment';
+            await initCamera();
+        };
+
+        function startScanning() {
+            scanning = true;
+            scanQRCode();
+        }
+
+        function stopScanning() {
+            scanning = false;
+        }
+
+        function scanQRCode() {
+            if (!scanning) return;
+
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            
+            if (video.videoWidth > 0) {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+                
+                try {
+                    const code = jsQR(imageData.data, imageData.width, imageData.height);
+                    if (code) {
+                        console.log('تم العثور على باركود:', code.data);
+                        handleCode(code.data);
+                        return;
+                    }
+                } catch (err) {
+                    console.error('خطأ في قراءة الباركود:', err);
+                }
+            }
+            
+            requestAnimationFrame(scanQRCode);
+        }
+
+        function handleCode(data) {
+            stopScanning();
+            status.textContent = `تم العثور على: ${data}`;
+            startButton.textContent = 'بدء القراءة';
+            
+            if (confirm(`تم العثور على: ${data}\nهل تريد بدء مسح جديد؟`)) {
+                startScanning();
+            }
+        }
+
+        // التعامل مع تغيير حجم النافذة
+        window.onresize = () => {
+            if (video.videoWidth > 0) {
+                const aspectRatio = video.videoWidth / video.videoHeight;
+                const containerWidth = video.offsetWidth;
+                video.style.height = (containerWidth / aspectRatio) + 'px';
+            }
+        };
+    </script>
+</body>
+</html>
