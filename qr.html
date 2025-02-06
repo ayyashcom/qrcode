@@ -82,6 +82,10 @@
         // تهيئة الماسح الضوئي
         async function initScanner() {
             try {
+                // طلب الإذن أولاً
+                const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                tempStream.getTracks().forEach(track => track.stop());
+                
                 const devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
                 const backCamera = devices.find(d => d.label.toLowerCase().includes('back'));
                 currentDeviceId = backCamera?.deviceId || devices[0]?.deviceId;
@@ -111,6 +115,7 @@
                 });
 
                 document.getElementById('preview').srcObject = mediaStream;
+                await new Promise(resolve => document.getElementById('preview').onplaying = resolve);
                 
                 codeReader.decodeFromVideoDevice(currentDeviceId, 'preview', (result, err) => {
                     if (result) handleSuccess(result.text);
@@ -159,16 +164,6 @@
             startScan();
         }
 
-        // إدارة التحميل
-        function showLoading(show) {
-            const loader = document.getElementById('loading');
-            if (show) {
-                loader.style.display = 'block';
-            } else {
-                loader.style.display = 'none';
-            }
-        }
-
         // إدارة الأخطاء
         function showError(title, message) {
             Swal.fire({
@@ -177,7 +172,7 @@
                 icon: 'error',
                 confirmButtonText: 'حسنًا'
             });
-            showLoading(false);
+            document.getElementById('startBtn').disabled = true;
         }
 
         // أحداث النقر
