@@ -28,6 +28,7 @@
             border: 3px solid var(--success-color);
             box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.7);
             animation: scan-animation 2s infinite;
+            clip-path: inset(0 0 0 0); /* يحدد منطقة التعتيم */
         }
         .controls {
             gap: 0.5rem;
@@ -59,17 +60,7 @@
         <input type="text" id="totalWeight" class="form-control" readonly value="0">
     </div>
     
-    <div class="scanner-container">
-        <video id="videoElement" playsinline autoplay></video>
-        <div class="scan-overlay"></div>
-    </div>
-    
-    <div class="controls d-flex justify-content-center">
-        <button class="btn btn-primary" id="toggleScan">بدء المسح</button>
-        <button class="btn btn-secondary" id="switchCamera">تبديل الكاميرا</button>
-        <button class="btn btn-warning" id="toggleFlash">🔦 الفلاش</button>
-    </div>
-    
+    <!-- نقل الجدول هنا -->
     <table class="table mt-4">
         <thead>
             <tr>
@@ -81,13 +72,25 @@
         <tbody id="shipmentTable"></tbody>
     </table>
     
+    <!-- الكاميرا هنا -->
+    <div class="scanner-container">
+        <video id="videoElement" playsinline autoplay></video>
+        <div class="scan-overlay"></div>
+    </div>
+    
+    <div class="controls d-flex justify-content-center">
+        <button class="btn btn-primary" id="toggleScan">بدء المسح</button>
+        <button class="btn btn-secondary" id="switchCamera">تبديل الكاميرا</button>
+        <button class="btn btn-warning" id="toggleFlash">🔦 الفلاش</button>
+    </div>
+    
     <button class="btn btn-success w-100 mt-3" id="saveData">حفظ البيانات</button>
     
     <script>
         const video = document.getElementById('videoElement');
         const startScan = document.getElementById('toggleScan');
-        const switchCamera = document.getElementById('switchCamera');
-        const toggleFlash = document.getElementById('toggleFlash');
+        const switchCameraBtn = document.getElementById('switchCamera');
+        const toggleFlashBtn = document.getElementById('toggleFlash');
         const shipmentTable = document.getElementById('shipmentTable');
         const totalWeightField = document.getElementById('totalWeight');
         const vehicleSelect = document.getElementById('vehicleSelect');
@@ -100,32 +103,111 @@
         let currentCamera = 'environment';
         let mediaStream = null;
         let barcodeDetector;
-        
-        vehicleSelect.addEventListener('change', () => {
-            maxWeight = parseInt(vehicleSelect.value);
+
+        // تحميل البيانات من localStorage عند تحميل الصفحة
+        const loadDataFromLocalStorage = () => {
+            const data = JSON.parse(localStorage.getItem('shipmentData'));
+            if (data) {
+                scannedBarcodes = new Set(data.scannedBarcodes);
+                currentWeight = data.currentWeight;
+                data.shipments.forEach(shipment => {
+                    insertShipment(shipment.barcode, shipment.weight);
+                });
+                updateTotalWeight();
+            }
+        };
+
+        // حفظ البيانات في localStorage
+        const saveDataToLocalStorage = () => {
+            const data = {
+                scannedBarcodes: Array.from(scannedBarcodes),
+                currentWeight,
+                shipments: Array.from(shipmentTable.querySelectorAll('tr')).map(row => ({
+                    barcode: row.cells[0].textContent,
+                    weight: parseInt(row.cells[1].textContent)
+                }))
+            };
+            localStorage.setItem('shipmentData', JSON.stringify(data));
+        };
+
+        // تحديث الوزن الكلي
+        const updateTotalWeight = () => {
+            totalWeightField.value = currentWeight;
+        };
+
+        // إضافة شحنة جديدة
+        const insertShipment = (barcode, weight) => {
+            scannedBarcodes.add(barcode);
+            currentWeight += weight;
             updateTotalWeight();
-        });
-
-        const initializeBarcodeDetector = async () => {
-            if ('BarcodeDetector' in window) {
-                barcodeDetector = new BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
-            } else {
-                Swal.fire('خطأ', 'يرجى استخدام متصفح حديث مثل Chrome 84+', 'error');
-            }
+            const row = document.createElement('tr');
+            row.id = `shipment-${barcode}`;
+            row.innerHTML = `<td>${barcode}</td><td>${weight}</td><td><button class="btn btn-danger btn-sm" onclick="removeShipment(this, ${weight}, '${barcode}')">❌</button></td>`;
+            shipmentTable.appendChild(row);
         };
 
-        const checkCameraPermissions = async () => {
-            try {
-                const devices = await navigator.mediaDevices.enumerateDevices();
-                const cameraDevices = devices.filter(device => device.kind === 'videoinput');
-                if (cameraDevices.length === 0) throw new Error('لم يتم العثور على كاميرا');
-                return true;
-            } catch (error) {
-                handleError(error);
-                return false;
-            }
+        // إزالة شحنة
+        const removeShipment = (button, weight, barcode) => {
+            Swal.fire({
+                title: 'هل أنت متأكد؟',
+                text: 'سيتم حذف الشحنة نهائيًا.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'نعم',
+                cancelButtonText: 'إلغاء'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    scannedBarcodes.delete(barcode);
+                    currentWeight -= weight;
+                    updateTotalWeight();
+                    button.closest('tr').remove();
+                    saveDataToLocalStorage();
+                }
+            });
         };
 
+        // التعامل مع الباركود الممسوح
+        const handleDetectedBarcode = (data) => {
+            Swal.fire({
+                title: 'تم المسح بنجاح!',
+                html: `<div class="text-break p-3 bg-light rounded">${data}</div>`,
+                icon: 'success',
+                confirmButtonText: 'تم'
+            }).then(() => {
+                stopCamera();
+                addShipment(data);
+                saveDataToLocalStorage();
+            });
+        };
+
+        // إضافة شحنة بعد المسح
+        const addShipment = (barcode) => {
+            const shipmentWeight = 50; // يمكن تغيير هذا الوزن حسب الحاجة
+            if (currentWeight + shipmentWeight > maxWeight) {
+                Swal.fire('المركبة ممتلئة!', 'تم تجاوز الحمولة المسموح بها.', 'warning');
+                return;
+            }
+            if (scannedBarcodes.has(barcode)) {
+                Swal.fire({
+                    title: 'تحذير!',
+                    text: 'هذه الشحنة مضافة مسبقًا. هل تريد إضافتها مرة أخرى؟',
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonText: 'نعم',
+                    cancelButtonText: 'إلغاء'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        insertShipment(barcode, shipmentWeight);
+                        saveDataToLocalStorage();
+                    }
+                });
+                return;
+            }
+            insertShipment(barcode, shipmentWeight);
+            saveDataToLocalStorage();
+        };
+
+        // بدء الكاميرا
         const startCamera = async () => {
             try {
                 const constraints = { video: { facingMode: currentCamera, width: { ideal: 1280 }, height: { ideal: 720 } } };
@@ -137,12 +219,14 @@
             }
         };
 
+        // بدء المسح
         const startScanning = () => {
             isScanning = true;
             document.querySelector('.scan-overlay').classList.add('scanning');
             detectBarcode();
         };
 
+        // اكتشاف الباركود
         const detectBarcode = async () => {
             if (!isScanning) return;
 
@@ -158,19 +242,7 @@
             }
         };
 
-        const handleDetectedBarcode = (data) => {
-            Swal.fire({
-                title: 'تم المسح بنجاح!',
-                html: `<div class="text-break p-3 bg-light rounded">${data}</div>`,
-                icon: 'success',
-                confirmButtonText: 'تم'
-            }).then(() => {
-                stopCamera();
-                addShipment(data);
-                window.location.hash = `#shipment-${data}`;
-            });
-        };
-
+        // إيقاف الكاميرا
         const stopCamera = () => {
             if (mediaStream) {
                 mediaStream.getTracks().forEach(track => track.stop());
@@ -178,70 +250,63 @@
             }
             isScanning = false;
             document.querySelector('.scan-overlay').classList.remove('scanning');
-            document.getElementById('toggleScan').textContent = 'بدء المسح';
+            startScan.textContent = 'بدء المسح';
         };
 
+        // تبديل الكاميرا
         const switchCamera = async () => {
             currentCamera = currentCamera === 'environment' ? 'user' : 'environment';
             await startCamera();
         };
 
+        // تبديل الفلاش
         const toggleFlash = async () => {
             if (!mediaStream) return;
             const track = mediaStream.getVideoTracks()[0];
             if (track.getCapabilities().torch) {
                 isFlashOn = !isFlashOn;
                 await track.applyConstraints({ advanced: [{ torch: isFlashOn }] });
-                toggleFlash.textContent = isFlashOn ? 'إطفاء الفلاش' : 'تشغيل الفلاش';
+                toggleFlashBtn.textContent = isFlashOn ? 'إطفاء الفلاش' : 'تشغيل الفلاش';
             }
         };
 
-        const addShipment = (barcode) => {
-            const shipmentWeight = 50;
-            if (currentWeight + shipmentWeight > maxWeight) {
-                Swal.fire('المركبة ممتلئة!', 'تم تجاوز الحمولة المسموح بها.', 'warning');
-                return;
+        // تهيئة BarcodeDetector
+        const initializeBarcodeDetector = async () => {
+            if ('BarcodeDetector' in window) {
+                barcodeDetector = new BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
+            } else {
+                Swal.fire('خطأ', 'يرجى استخدام متصفح حديث مثل Chrome 84+', 'error');
             }
-            insertShipment(barcode, shipmentWeight);
         };
 
-        const insertShipment = (barcode, weight) => {
-            scannedBarcodes.add(barcode);
-            currentWeight += weight;
-            updateTotalWeight();
-            const row = document.createElement('tr');
-            row.id = `shipment-${barcode}`;
-            row.innerHTML = `<td>${barcode}</td><td>${weight}</td><td><button class="btn btn-danger btn-sm" onclick="removeShipment(this, ${weight}, '${barcode}')">❌</button></td>`;
-            shipmentTable.appendChild(row);
+        // التحقق من صلاحيات الكاميرا
+        const checkCameraPermissions = async () => {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const cameraDevices = devices.filter(device => device.kind === 'videoinput');
+                if (cameraDevices.length === 0) throw new Error('لم يتم العثور على كاميرا');
+                return true;
+            } catch (error) {
+                handleError(error);
+                return false;
+            }
         };
 
-        const removeShipment = (button, weight, barcode) => {
-            Swal.fire({
-                title: 'هل أنت متأكد؟',
-                text: 'سيتم حذف الشحنة نهائيًا.',
-                icon: 'warning',
-                showCancelButton: true,
-                confirmButtonText: 'نعم',
-                cancelButtonText: 'إلغاء'
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    scannedBarcodes.delete(barcode);
-                    currentWeight -= weight;
-                    updateTotalWeight();
-                    button.closest('tr').remove();
-                }
-            });
+        // التعامل مع الأخطاء
+        const handleError = (error) => {
+            Swal.fire('خطأ', error.message, 'error');
         };
 
-        const updateTotalWeight = () => {
-            totalWeightField.value = currentWeight;
+        // تحميل الصفحة
+        window.onload = async () => {
+            const hasPermission = await checkCameraPermissions();
+            if (hasPermission) {
+                await initializeBarcodeDetector();
+            }
+            loadDataFromLocalStorage();
         };
 
-        saveDataButton.addEventListener('click', () => {
-            Swal.fire('تم حفظ البيانات!', 'تم حفظ جميع الشحنات بنجاح.', 'success');
-            // يمكن حفظ البيانات في قاعدة البيانات أو مكان آخر حسب الحاجة.
-        });
-
+        // الأحداث
         startScan.addEventListener('click', async () => {
             if (!isScanning) {
                 await startCamera();
@@ -252,12 +317,18 @@
             }
         });
 
-        window.onload = async () => {
-            const hasPermission = await checkCameraPermissions();
-            if (hasPermission) {
-                await initializeBarcodeDetector();
-            }
-        };
+        switchCameraBtn.addEventListener('click', switchCamera);
+        toggleFlashBtn.addEventListener('click', toggleFlash);
+
+        vehicleSelect.addEventListener('change', () => {
+            maxWeight = parseInt(vehicleSelect.value);
+            updateTotalWeight();
+        });
+
+        saveDataButton.addEventListener('click', () => {
+            saveDataToLocalStorage();
+            Swal.fire('تم حفظ البيانات!', 'تم حفظ جميع الشحنات بنجاح.', 'success');
+        });
     </script>
 </body>
 </html>
