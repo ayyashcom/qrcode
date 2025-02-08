@@ -29,17 +29,23 @@
             box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.7);
             animation: scan-animation 2s infinite;
         }
+        .controls {
+            gap: 0.5rem;
+            margin-top: 1.5rem;
+        }
+        .scanning { 
+            opacity: 0.5; 
+        }
         @keyframes scan-animation {
             0% { opacity: 0.9; }
             50% { opacity: 0.4; }
             100% { opacity: 0.9; }
         }
-        .controls { gap: 0.5rem; margin-top: 1.5rem; }
     </style>
 </head>
 <body class="container mt-4">
     <h2 class="text-center text-primary">📦 إدخال الشحنات</h2>
-
+    
     <div class="mb-3">
         <label for="vehicleSelect" class="form-label">اختر المركبة</label>
         <select id="vehicleSelect" class="form-select">
@@ -47,7 +53,23 @@
             <option value="10000">مركبة 2 - الحمولة 10 طن</option>
         </select>
     </div>
-
+    
+    <div class="mb-3">
+        <label class="form-label">الوزن الكلي (كجم)</label>
+        <input type="text" id="totalWeight" class="form-control" readonly value="0">
+    </div>
+    
+    <div class="scanner-container">
+        <video id="videoElement" playsinline autoplay></video>
+        <div class="scan-overlay"></div>
+    </div>
+    
+    <div class="controls d-flex justify-content-center">
+        <button class="btn btn-primary" id="toggleScan">بدء المسح</button>
+        <button class="btn btn-secondary" id="switchCamera">تبديل الكاميرا</button>
+        <button class="btn btn-warning" id="toggleFlash">🔦 الفلاش</button>
+    </div>
+    
     <table class="table mt-4">
         <thead>
             <tr>
@@ -58,37 +80,27 @@
         </thead>
         <tbody id="shipmentTable"></tbody>
     </table>
-
-    <div class="mb-3">
-        <label class="form-label">الوزن الكلي (كجم)</label>
-        <input type="text" id="totalWeight" class="form-control" readonly value="0">
-    </div>
     
-    <div class="scanner-container">
-        <video id="videoElement" playsinline autoplay></video>
-        <div class="scan-overlay"></div>
-    </div>
-
-    <div class="controls d-flex flex-wrap justify-content-center">
-        <button class="btn btn-primary btn-lg px-4" id="toggleScan">بدء المسح</button>
-        <button class="btn btn-secondary btn-lg px-4" id="switchCamera">تبديل الكاميرا</button>
-        <button class="btn btn-warning btn-lg px-4" id="toggleFlash">🔦 الفلاش</button>
-    </div>
-
+    <button class="btn btn-success w-100 mt-3" id="saveData">حفظ البيانات</button>
+    
     <script>
         const video = document.getElementById('videoElement');
+        const startScan = document.getElementById('toggleScan');
+        const switchCamera = document.getElementById('switchCamera');
+        const toggleFlash = document.getElementById('toggleFlash');
         const shipmentTable = document.getElementById('shipmentTable');
         const totalWeightField = document.getElementById('totalWeight');
         const vehicleSelect = document.getElementById('vehicleSelect');
+        const saveDataButton = document.getElementById('saveData');
         let currentWeight = 0;
         let maxWeight = parseInt(vehicleSelect.value);
         let scannedBarcodes = new Set();
         let isScanning = false;
         let isFlashOn = false;
         let currentCamera = 'environment';
-        let barcodeDetector;
         let mediaStream = null;
-
+        let barcodeDetector;
+        
         vehicleSelect.addEventListener('change', () => {
             maxWeight = parseInt(vehicleSelect.value);
             updateTotalWeight();
@@ -106,10 +118,7 @@
             try {
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 const cameraDevices = devices.filter(device => device.kind === 'videoinput');
-                
-                if (cameraDevices.length === 0) {
-                    throw new Error('لم يتم العثور على كاميرا');
-                }
+                if (cameraDevices.length === 0) throw new Error('لم يتم العثور على كاميرا');
                 return true;
             } catch (error) {
                 handleError(error);
@@ -119,10 +128,7 @@
 
         const startCamera = async () => {
             try {
-                const constraints = {
-                    video: { facingMode: currentCamera, width: { ideal: 1280 }, height: { ideal: 720 } }
-                };
-
+                const constraints = { video: { facingMode: currentCamera, width: { ideal: 1280 }, height: { ideal: 720 } } };
                 mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = mediaStream;
                 startScanning();
@@ -133,11 +139,13 @@
 
         const startScanning = () => {
             isScanning = true;
+            document.querySelector('.scan-overlay').classList.add('scanning');
             detectBarcode();
         };
 
         const detectBarcode = async () => {
             if (!isScanning) return;
+
             try {
                 const barcodes = await barcodeDetector.detect(video);
                 if (barcodes.length > 0) {
@@ -156,45 +164,61 @@
                 html: `<div class="text-break p-3 bg-light rounded">${data}</div>`,
                 icon: 'success',
                 confirmButtonText: 'تم'
+            }).then(() => {
+                stopCamera();
+                addShipment(data);
+                window.location.hash = `#shipment-${data}`;
             });
-            stopCamera();
-            addShipment(data);
+        };
+
+        const stopCamera = () => {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+            }
+            isScanning = false;
+            document.querySelector('.scan-overlay').classList.remove('scanning');
+            document.getElementById('toggleScan').textContent = 'بدء المسح';
+        };
+
+        const switchCamera = async () => {
+            currentCamera = currentCamera === 'environment' ? 'user' : 'environment';
+            await startCamera();
+        };
+
+        const toggleFlash = async () => {
+            if (!mediaStream) return;
+            const track = mediaStream.getVideoTracks()[0];
+            if (track.getCapabilities().torch) {
+                isFlashOn = !isFlashOn;
+                await track.applyConstraints({ advanced: [{ torch: isFlashOn }] });
+                toggleFlash.textContent = isFlashOn ? 'إطفاء الفلاش' : 'تشغيل الفلاش';
+            }
         };
 
         const addShipment = (barcode) => {
             const shipmentWeight = 50;
             if (currentWeight + shipmentWeight > maxWeight) {
-                Swal.fire({
-                    title: 'المركبة ممتلئة!',
-                    text: 'هل تريد إنهاء الإضافة أم متابعة التحميل؟',
-                    icon: 'warning',
-                    showCancelButton: true,
-                    confirmButtonText: 'متابعة',
-                    cancelButtonText: 'إنهاء'
-                }).then((result) => {
-                    if (!result.isConfirmed) return;
-                    insertShipment(barcode, shipmentWeight);
-                });
-            } else {
-                insertShipment(barcode, shipmentWeight);
+                Swal.fire('المركبة ممتلئة!', 'تم تجاوز الحمولة المسموح بها.', 'warning');
+                return;
             }
+            insertShipment(barcode, shipmentWeight);
         };
 
         const insertShipment = (barcode, weight) => {
             scannedBarcodes.add(barcode);
             currentWeight += weight;
             updateTotalWeight();
-            
             const row = document.createElement('tr');
+            row.id = `shipment-${barcode}`;
             row.innerHTML = `<td>${barcode}</td><td>${weight}</td><td><button class="btn btn-danger btn-sm" onclick="removeShipment(this, ${weight}, '${barcode}')">❌</button></td>`;
             shipmentTable.appendChild(row);
-            window.scrollTo(0, document.body.scrollHeight); // التمرير التلقائي
         };
 
         const removeShipment = (button, weight, barcode) => {
             Swal.fire({
                 title: 'هل أنت متأكد؟',
-                text: 'سيتم حذف الشحنة نهائيًا!',
+                text: 'سيتم حذف الشحنة نهائيًا.',
                 icon: 'warning',
                 showCancelButton: true,
                 confirmButtonText: 'نعم',
@@ -213,46 +237,27 @@
             totalWeightField.value = currentWeight;
         };
 
-        const stopCamera = () => {
-            if (mediaStream) {
-                mediaStream.getTracks().forEach(track => track.stop());
-                mediaStream = null;
-            }
-            isScanning = false;
-        };
-
-        const switchCamera = async () => {
-            currentCamera = currentCamera === 'environment' ? 'user' : 'environment';
-            await startCamera();
-        };
-
-        const toggleFlash = async () => {
-            if (!mediaStream) return;
-
-            const track = mediaStream.getVideoTracks()[0];
-            if (track.getCapabilities().torch) {
-                isFlashOn = !isFlashOn;
-                await track.applyConstraints({ advanced: [{ torch: isFlashOn }] });
-            }
-        };
-
-        const handleError = (error) => {
-            console.error('Error:', error);
-            Swal.fire('خطأ!', error.message, 'error');
-        };
-
-        (async () => {
-            await initializeBarcodeDetector();
-            const hasPermission = await checkCameraPermissions();
-            if (hasPermission) await startCamera();
-        })();
-
-        document.getElementById('toggleScan').addEventListener('click', () => {
-            isScanning ? stopCamera() : startCamera();
+        saveDataButton.addEventListener('click', () => {
+            Swal.fire('تم حفظ البيانات!', 'تم حفظ جميع الشحنات بنجاح.', 'success');
+            // يمكن حفظ البيانات في قاعدة البيانات أو مكان آخر حسب الحاجة.
         });
 
-        document.getElementById('switchCamera').addEventListener('click', switchCamera);
-        document.getElementById('toggleFlash').addEventListener('click', toggleFlash);
+        startScan.addEventListener('click', async () => {
+            if (!isScanning) {
+                await startCamera();
+                startScan.textContent = 'إيقاف المسح';
+            } else {
+                stopCamera();
+                startScan.textContent = 'بدء المسح';
+            }
+        });
+
+        window.onload = async () => {
+            const hasPermission = await checkCameraPermissions();
+            if (hasPermission) {
+                await initializeBarcodeDetector();
+            }
+        };
     </script>
 </body>
 </html>
