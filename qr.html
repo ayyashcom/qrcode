@@ -6,84 +6,115 @@
     <title>إدخال الشحنات</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
+    <style>
+        .scanner-container {
+            position: relative;
+            max-width: 600px;
+            margin: 1rem auto;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 5px 10px rgba(0, 0, 0, 0.1);
+        }
+        #videoElement {
+            width: 100%;
+            transform: scaleX(-1);
+        }
+        .scan-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 70%;
+            height: 30%;
+            border: 3px solid green;
+        }
+    </style>
 </head>
-<body class="container mt-4">
+<body class="container py-4">
     <h2 class="text-center text-primary">إدخال الشحنات</h2>
     
-    <!-- اختيار المركبة -->
     <div class="mb-3">
-        <label for="vehicleSelect" class="form-label">اختر المركبة:</label>
-        <select id="vehicleSelect" class="form-select">
-            <option value="">-- اختر مركبة --</option>
-            <!-- سيتم ملء القائمة من قاعدة البيانات -->
+        <label class="form-label">اختر المركبة:</label>
+        <select class="form-select" id="vehicleSelect">
+            <option value="">-- اختر المركبة --</option>
+            <option value="1">مركبة 1</option>
+            <option value="2">مركبة 2</option>
         </select>
     </div>
     
-    <!-- زر مسح الباركود -->
-    <button class="btn btn-success w-100 mb-3" id="scanBarcode">📷 مسح الباركود</button>
+    <button class="btn btn-success w-100 mb-3" id="openScanner">📷 مسح الباركود</button>
     
-    <!-- جدول عرض الشحنات -->
-    <table class="table table-bordered text-center">
-        <thead class="table-dark">
+    <div class="scanner-container d-none" id="scannerContainer">
+        <video id="videoElement" autoplay playsinline></video>
+        <div class="scan-overlay"></div>
+    </div>
+    
+    <table class="table table-bordered text-center mt-3">
+        <thead>
             <tr>
                 <th>الكود</th>
-                <th>المنتج</th>
+                <th>الوصف</th>
                 <th>الوزن</th>
                 <th>إجراء</th>
             </tr>
         </thead>
-        <tbody id="shipmentTableBody">
-            <!-- سيتم إضافة الشحنات هنا -->
+        <tbody id="shipmentTable">
         </tbody>
     </table>
     
-    <!-- عرض الوزن الإجمالي -->
-    <div class="alert alert-info text-center">
-        الوزن الإجمالي: <span id="totalWeight">0</span> كجم
-    </div>
+    <h4 class="text-end">إجمالي الوزن: <span id="totalWeight">0</span> كجم</h4>
     
-    <!-- زر حفظ البيانات -->
-    <button class="btn btn-primary w-100" id="saveData">💾 حفظ البيانات</button>
-
+    <button class="btn btn-primary w-100">💾 حفظ البيانات</button>
+    
     <script>
-        let shipments = [];
+        let video = document.getElementById('videoElement');
+        let scannerContainer = document.getElementById('scannerContainer');
+        let totalWeight = 0;
+        let mediaStream = null;
 
-        document.getElementById("scanBarcode").addEventListener("click", function() {
-            let fakeBarcode = prompt("أدخل كود الباركود يدويًا (للتجربة)");
-            if (fakeBarcode) {
-                fetchShipmentData(fakeBarcode);
+        document.getElementById('openScanner').addEventListener('click', async () => {
+            scannerContainer.classList.remove('d-none');
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                video.srcObject = mediaStream;
+                detectBarcode();
+            } catch (error) {
+                alert('خطأ في فتح الكاميرا: ' + error.message);
             }
         });
 
-        function fetchShipmentData(barcode) {
-            // محاكاة جلب البيانات من قاعدة البيانات
-            let mockData = { id: barcode, name: "منتج تجريبي", weight: Math.floor(Math.random() * 50) + 10 };
-            shipments.push(mockData);
-            updateTable();
+        function detectBarcode() {
+            setTimeout(() => {
+                let dummyBarcode = "12345";
+                handleDetectedBarcode(dummyBarcode);
+                stopScanner();
+            }, 2000);
         }
 
-        function updateTable() {
-            let tbody = document.getElementById("shipmentTableBody");
-            tbody.innerHTML = "";
-            let totalWeight = 0;
-
-            shipments.forEach((shipment, index) => {
-                totalWeight += shipment.weight;
-                tbody.innerHTML += `
-                    <tr>
-                        <td>${shipment.id}</td>
-                        <td>${shipment.name}</td>
-                        <td>${shipment.weight}</td>
-                        <td><button class='btn btn-danger' onclick='removeShipment(${index})'>❌ حذف</button></td>
-                    </tr>
-                `;
-            });
-            document.getElementById("totalWeight").textContent = totalWeight;
+        function handleDetectedBarcode(code) {
+            let row = `<tr>
+                <td>${code}</td>
+                <td>وصف المنتج</td>
+                <td>50</td>
+                <td><button class="btn btn-danger btn-sm" onclick="removeRow(this, 50)">❌</button></td>
+            </tr>`;
+            $('#shipmentTable').append(row);
+            totalWeight += 50;
+            document.getElementById('totalWeight').innerText = totalWeight;
         }
 
-        function removeShipment(index) {
-            shipments.splice(index, 1);
-            updateTable();
+        function stopScanner() {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                scannerContainer.classList.add('d-none');
+            }
+        }
+
+        function removeRow(button, weight) {
+            $(button).closest('tr').remove();
+            totalWeight -= weight;
+            document.getElementById('totalWeight').innerText = totalWeight;
         }
     </script>
 </body>
