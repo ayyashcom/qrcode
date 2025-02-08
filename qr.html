@@ -41,7 +41,8 @@
         .progress-bar {
             font-weight: bold;
             font-size: 1.1em;
-            color: black; /* جعل الخط أسودًا */
+            color: black; /* لون النص أسود */
+            white-space: nowrap; /* منع النص من الانتقال لسطر جديد */
         }
         @keyframes scan-animation {
             0% { opacity: 0.9; }
@@ -362,15 +363,15 @@
                     cancelButtonText: 'إلغاء'
                 }).then((result) => {
                     if (result.isConfirmed) {
-                        clearData(); // تفريغ الجدول والبيانات المحفوظة
-                        maxWeight = parseInt(vehicleSelect.value); // تحديث الحد الأقصى للوزن
+                        clearData(); // حذف البيانات
+                        maxWeight = parseInt(vehicleSelect.value); // تحديث الحد الأقصى
                         updateTotalWeight();
                     } else {
                         vehicleSelect.value = maxWeight; // إعادة تعيين القيمة السابقة
                     }
                 });
             } else {
-                maxWeight = parseInt(vehicleSelect.value); // تحديث الحد الأقصى للوزن
+                maxWeight = parseInt(vehicleSelect.value);
                 updateTotalWeight();
             }
         };
