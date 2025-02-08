@@ -10,22 +10,22 @@
         body { background: #f3f4f6; padding: 1rem; }
         .scanner-container { 
             position: relative; 
-            max-width: 800px; 
+            max-width: 600px; 
             margin: auto; 
-            height: 300px; /* ارتفاع جديد */
+            height: 300px; 
         }
         #videoElement { 
             width: 100%; 
-            height: 100%; /* ملء الحاوية */
-            object-fit: cover; /* للحفاظ على نسبة العرض إلى الارتفاع */
+            height: 100%; 
+            object-fit: cover; 
         }
         .scan-overlay {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 70%;
-            height: 40%; /* ارتفاع أقل لجعله مستطيلًا */
+            width: 80%;
+            height: 40%;
             border: 3px solid var(--success-color);
             box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.7);
             animation: scan-animation 2s infinite;
@@ -33,7 +33,7 @@
         }
         .controls {
             gap: 0.5rem;
-            margin-bottom: 1.5rem;
+            margin-top: 1.5rem;
         }
         .scanning { 
             opacity: 0.5; 
@@ -61,19 +61,6 @@
         <input type="text" id="totalWeight" class="form-control" readonly value="0">
     </div>
     
-    <!-- نقل الأزرار هنا -->
-    <div class="controls d-flex justify-content-center mb-3">
-        <button class="btn btn-primary" id="toggleScan">بدء المسح</button>
-        <button class="btn btn-secondary" id="switchCamera">تبديل الكاميرا</button>
-        <button class="btn btn-warning" id="toggleFlash">🔦 الفلاش</button>
-    </div>
-    
-    <!-- الكاميرا هنا -->
-    <div class="scanner-container">
-        <video id="videoElement" playsinline autoplay></video>
-        <div class="scan-overlay"></div>
-    </div>
-    
     <!-- الجدول هنا -->
     <table class="table mt-4">
         <thead>
@@ -85,6 +72,19 @@
         </thead>
         <tbody id="shipmentTable"></tbody>
     </table>
+    
+    <!-- الأزرار هنا -->
+    <div class="controls d-flex justify-content-center mt-3">
+        <button class="btn btn-primary" id="toggleScan">بدء المسح</button>
+        <button class="btn btn-secondary" id="switchCamera">تبديل الكاميرا</button>
+        <button class="btn btn-warning" id="toggleFlash">🔦 الفلاش</button>
+    </div>
+    
+    <!-- الكاميرا هنا -->
+    <div class="scanner-container mt-3">
+        <video id="videoElement" playsinline autoplay></video>
+        <div class="scan-overlay"></div>
+    </div>
     
     <button class="btn btn-success w-100 mt-3" id="saveData">حفظ البيانات</button>
     
@@ -221,14 +221,14 @@
                 };
                 mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = mediaStream;
-
-                // عكس الفيديو للكاميرا الخلفية فقط
+                
+                // إزالة التحويل الأفقي (scaleX) للكاميرا الخلفية
                 if (currentCamera === 'environment') {
-                    video.style.transform = 'scaleX(-1)'; // عكس الفيديو
+                    video.style.transform = 'scaleX(1)'; // إزالة العكس
                 } else {
-                    video.style.transform = 'scaleX(1)'; // إعادة الضبط للكاميرا الأمامية
+                    video.style.transform = 'scaleX(-1)'; // عكس الكاميرا الأمامية
                 }
-
+                
                 startScanning();
             } catch (error) {
                 handleError(error);
