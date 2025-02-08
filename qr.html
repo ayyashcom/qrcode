@@ -41,6 +41,7 @@
         .progress-bar {
             font-weight: bold;
             font-size: 1.1em;
+            color: black; /* جعل الخط أسودًا */
         }
         @keyframes scan-animation {
             0% { opacity: 0.9; }
@@ -349,6 +350,31 @@
             localStorage.removeItem('shipmentData'); // حذف البيانات المحفوظة
         };
 
+        // تحذير عند تغيير المركبة
+        const warnBeforeChangingVehicle = () => {
+            if (shipmentTable.rows.length > 0) {
+                Swal.fire({
+                    title: 'تحذير!',
+                    text: 'سيتم حذف جميع البيانات الحالية. هل أنت متأكد؟',
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonText: 'نعم',
+                    cancelButtonText: 'إلغاء'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        clearData(); // تفريغ الجدول والبيانات المحفوظة
+                        maxWeight = parseInt(vehicleSelect.value); // تحديث الحد الأقصى للوزن
+                        updateTotalWeight();
+                    } else {
+                        vehicleSelect.value = maxWeight; // إعادة تعيين القيمة السابقة
+                    }
+                });
+            } else {
+                maxWeight = parseInt(vehicleSelect.value); // تحديث الحد الأقصى للوزن
+                updateTotalWeight();
+            }
+        };
+
         // تحميل الصفحة
         window.onload = async () => {
             const hasPermission = await checkCameraPermissions();
@@ -372,10 +398,7 @@
         switchCameraBtn.addEventListener('click', switchCamera);
         toggleFlashBtn.addEventListener('click', toggleFlash);
 
-        vehicleSelect.addEventListener('change', () => {
-            maxWeight = parseInt(vehicleSelect.value);
-            updateTotalWeight();
-        });
+        vehicleSelect.addEventListener('change', warnBeforeChangingVehicle);
 
         saveDataButton.addEventListener('click', () => {
             Swal.fire({
