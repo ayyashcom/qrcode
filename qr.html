@@ -148,6 +148,7 @@
             row.id = `shipment-${barcode}`;
             row.innerHTML = `<td>${barcode}</td><td>${weight}</td><td><button class="btn btn-danger btn-sm" onclick="removeShipment(this, ${weight}, '${barcode}')">❌</button></td>`;
             shipmentTable.appendChild(row);
+            saveDataToLocalStorage(); // حفظ التغييرات تلقائيًا
         };
 
         // إزالة شحنة
@@ -165,7 +166,7 @@
                     currentWeight -= weight;
                     updateTotalWeight();
                     button.closest('tr').remove();
-                    saveDataToLocalStorage();
+                    saveDataToLocalStorage(); // حفظ التغييرات تلقائيًا
                 }
             });
         };
@@ -180,7 +181,6 @@
             }).then(() => {
                 stopCamera();
                 addShipment(data);
-                saveDataToLocalStorage();
             });
         };
 
@@ -202,13 +202,11 @@
                 }).then((result) => {
                     if (result.isConfirmed) {
                         insertShipment(barcode, shipmentWeight);
-                        saveDataToLocalStorage();
                     }
                 });
                 return;
             }
             insertShipment(barcode, shipmentWeight);
-            saveDataToLocalStorage();
         };
 
         // بدء الكاميرا
@@ -315,6 +313,15 @@
             Swal.fire('خطأ', error.message, 'error');
         };
 
+        // تفريغ الجدول والبيانات المحفوظة
+        const clearData = () => {
+            shipmentTable.innerHTML = ''; // تفريغ الجدول
+            currentWeight = 0; // إعادة تعيين الوزن الإجمالي
+            updateTotalWeight();
+            scannedBarcodes.clear(); // تفريغ الباركود الممسوحة
+            localStorage.removeItem('shipmentData'); // حذف البيانات المحفوظة
+        };
+
         // تحميل الصفحة
         window.onload = async () => {
             const hasPermission = await checkCameraPermissions();
@@ -344,8 +351,20 @@
         });
 
         saveDataButton.addEventListener('click', () => {
-            saveDataToLocalStorage();
-            Swal.fire('تم حفظ البيانات!', 'تم حفظ جميع الشحنات بنجاح.', 'success');
+            Swal.fire({
+                title: 'هل أنت متأكد؟',
+                text: 'سيتم حفظ البيانات وحذفها من الشاشة.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'نعم',
+                cancelButtonText: 'إلغاء'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    saveDataToLocalStorage();
+                    clearData(); // تفريغ الجدول والبيانات المحفوظة
+                    Swal.fire('تم الحفظ!', 'تم حفظ البيانات بنجاح.', 'success');
+                }
+            });
         });
     </script>
 </body>
